@@ -1,0 +1,28 @@
+{
+  "name": "@openclaw/graph-memory",
+  "version": "1.0.0",
+  "description": "Knowledge Graph Memory Engine for OpenClaw — with Personalized PageRank, community detection, and vector dedup",
+  "main": "index.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "openai": "^4.47.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.4.0"
+  },
+  "peerDependencies": {
+    "openclaw": "*"
+  },
+  "openclaw": {
+    "extensions": ["./index.ts"]
+  }
+}
