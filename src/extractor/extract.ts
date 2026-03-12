@@ -271,7 +271,7 @@ export class Extractor {
 
   async finalize(params: { sessionNodes: any[]; graphSummary: string }): Promise<FinalizeResult> {
     const raw = await this.llm(FINALIZE_SYS, FINALIZE_USER(params.sessionNodes, params.graphSummary));
-    return this.parseFinalize(raw);
+    return this.parseFinalize(raw, params.sessionNodes);
   }
 
   private parseExtract(raw: string): ExtractionResult {
@@ -315,13 +315,36 @@ export class Extractor {
     }
   }
 
-  private parseFinalize(raw: string): FinalizeResult {
+  private parseFinalize(raw: string, sessionNodes?: any[]): FinalizeResult {
     try {
       const json = extractJson(raw);
       const p = JSON.parse(json);
+
+      // 构建 name→type 索引（从 sessionNodes + promotedSkills）
+      const nameToType = new Map<string, string>();
+      if (sessionNodes) {
+        for (const n of sessionNodes) {
+          if (n.name && n.type) nameToType.set(normalizeName(n.name), n.type);
+        }
+      }
+      const promotedSkills = (p.promotedSkills ?? []).filter((n: any) => n.name && n.content);
+      for (const n of promotedSkills) {
+        nameToType.set(normalizeName(n.name), n.type ?? "SKILL");
+      }
+
+      // newEdges 做方向约束校验
+      const newEdges = (p.newEdges ?? [])
+        .filter((e: any) => e.from && e.to && e.type && VALID_EDGE_TYPES.has(e.type))
+        .map((e: any) => {
+          e.from = normalizeName(e.from);
+          e.to = normalizeName(e.to);
+          return correctEdgeType(e, nameToType);
+        })
+        .filter((e: any) => e !== null);
+
       return {
-        promotedSkills: (p.promotedSkills ?? []).filter((n: any) => n.name && n.content),
-        newEdges: (p.newEdges ?? []).filter((e: any) => e.from && e.to && e.type && VALID_EDGE_TYPES.has(e.type)),
+        promotedSkills,
+        newEdges,
         invalidations: p.invalidations ?? [],
       };
     } catch { return { promotedSkills: [], newEdges: [], invalidations: [] }; }
@@ -332,6 +355,9 @@ export class Extractor {
 
 function extractJson(raw: string): string {
   let s = raw.trim();
+  // 清理 <think>...</think> 思维链标签（兼容 MiniMax 等模型）
+  s = s.replace(/<think>[\s\S]*?<\/think>/gi, "");
+  s = s.replace(/<think>[\s\S]*/gi, "");  // 未闭合的 <think>
   s = s.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?\s*```\s*$/i, "");
   s = s.trim();
   if (s.startsWith("{") && s.endsWith("}")) return s;

@@ -27,7 +27,7 @@
  * ═══════════════════════════════════════════════════════════════
  */
 
-import { DatabaseSync } from "@photostructure/sqlite";
+import { DatabaseSync, type DatabaseSyncInstance } from "@photostructure/sqlite";
 import type { GmConfig } from "../types.ts";
 import { updatePageranks } from "../store/store.ts";
 
@@ -50,7 +50,7 @@ const CACHE_TTL = 30_000; // 30 秒缓存
  * 读取图结构（带缓存）
  * compact 会新增节点/边，但 30 秒内的查询共享同一份图结构没问题
  */
-function loadGraph(db: DatabaseSync): GraphStructure {
+function loadGraph(db: DatabaseSyncInstance): GraphStructure {
   if (_cached && Date.now() - _cached.cachedAt < CACHE_TTL) return _cached;
 
   const nodeRows = db.prepare(
@@ -97,7 +97,7 @@ export interface PPRResult {
  * @returns 候选节点的个性化分数
  */
 export function personalizedPageRank(
-  db: DatabaseSync,
+  db: DatabaseSyncInstance,
   seedIds: string[],
   candidateIds: string[],
   cfg: GmConfig,
@@ -187,7 +187,7 @@ export interface GlobalPageRankResult {
  *
  * 只在 session_end / gm_maintain 时调用
  */
-export function computeGlobalPageRank(db: DatabaseSync, cfg: GmConfig): GlobalPageRankResult {
+export function computeGlobalPageRank(db: DatabaseSyncInstance, cfg: GmConfig): GlobalPageRankResult {
   const graph = loadGraph(db);
   const { nodeIds, adj, N } = graph;
   const damping = cfg.pagerankDamping;

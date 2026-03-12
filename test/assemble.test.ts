@@ -6,14 +6,14 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { DatabaseSync } from "@photostructure/sqlite";
+import { DatabaseSync, type DatabaseSyncInstance } from "@photostructure/sqlite";
 import { createTestDb, insertNode, insertEdge } from "./helpers.ts";
 import { assembleContext, buildSystemPromptAddition } from "../src/format/assemble.ts";
 import { sanitizeToolUseResultPairing } from "../src/format/transcript-repair.ts";
 import { findById } from "../src/store/store.ts";
 import type { GmNode, GmEdge } from "../src/types.ts";
 
-let db: DatabaseSync;
+let db: DatabaseSyncInstance;
 
 beforeEach(() => { db = createTestDb(); });
 
@@ -190,6 +190,6 @@ describe("sanitizeToolUseResultPairing", () => {
     const toolResults = result.filter(m => m.role === "toolResult");
     expect(toolResults.length).toBeGreaterThanOrEqual(1);
     // 第一个 toolResult 的内容是 "first"
-    expect(toolResults[0].content[0].text).toBe("first");
+    expect((toolResults[0].content[0] as any).text).toBe("first");
   });
 });

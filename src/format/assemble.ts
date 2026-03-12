@@ -5,8 +5,9 @@
  * Email: Wywelljob@gmail.com
  */
 
-import { DatabaseSync } from "@photostructure/sqlite";
+import { DatabaseSync, type DatabaseSyncInstance } from "@photostructure/sqlite";
 import type { GmNode, GmEdge } from "../types.ts";
+import { getCommunitySummary } from "../store/store.ts";
 
 const CHARS_PER_TOKEN = 3;
 
@@ -78,7 +79,7 @@ export function buildSystemPromptAddition(params: {
  * 组装知识图谱为 XML context
  */
 export function assembleContext(
-  db: DatabaseSync,
+  db: DatabaseSyncInstance,
   params: {
     tokenBudget: number;
     activeNodes: GmNode[];
@@ -127,11 +128,43 @@ export function assembleContext(
     selectedIds.has(e.fromId) && selectedIds.has(e.toId) && !seen.has(e.id) && seen.add(e.id)
   );
 
-  const nodesXml = selected.map(n => {
+  // 按社区分组节点
+  const byCommunity = new Map<string, typeof selected>();
+  const noCommunity: typeof selected = [];
+  for (const n of selected) {
+    if (n.communityId) {
+      if (!byCommunity.has(n.communityId)) byCommunity.set(n.communityId, []);
+      byCommunity.get(n.communityId)!.push(n);
+    } else {
+      noCommunity.push(n);
+    }
+  }
+
+  // 生成节点 XML（按社区分组）
+  const xmlParts: string[] = [];
+
+  for (const [cid, members] of byCommunity) {
+    const summary = getCommunitySummary(db, cid);
+    const label = summary ? escapeXml(summary.summary) : cid;
+    xmlParts.push(`  <community id="${cid}" desc="${label}">`);
+    for (const n of members) {
+      const tag = n.type.toLowerCase();
+      const srcAttr = n.src === "recalled" ? ` source="recalled"` : "";
+      const timeAttr = ` updated="${new Date(n.updatedAt).toISOString().slice(0, 10)}"`;
+      xmlParts.push(`    <${tag} name="${n.name}" desc="${escapeXml(n.description)}"${srcAttr}${timeAttr}>\n${n.content.trim()}\n    </${tag}>`);
+    }
+    xmlParts.push(`  </community>`);
+  }
+
+  // 无社区的节点直接放顶层
+  for (const n of noCommunity) {
     const tag = n.type.toLowerCase();
     const srcAttr = n.src === "recalled" ? ` source="recalled"` : "";
-    return `  <${tag} name="${n.name}" desc="${escapeXml(n.description)}"${srcAttr}>\n${n.content.trim()}\n  </${tag}>`;
-  }).join("\n");
+    const timeAttr = ` updated="${new Date(n.updatedAt).toISOString().slice(0, 10)}"`;
+    xmlParts.push(`  <${tag} name="${n.name}" desc="${escapeXml(n.description)}"${srcAttr}${timeAttr}>\n${n.content.trim()}\n  </${tag}>`);
+  }
+
+  const nodesXml = xmlParts.join("\n");
 
   const edgesXml = edges.length
     ? `\n  <edges>\n${edges.map(e => {

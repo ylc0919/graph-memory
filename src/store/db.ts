@@ -5,17 +5,17 @@
  * Email: Wywelljob@gmail.com
  */
 
-import { DatabaseSync } from "@photostructure/sqlite";
+import { DatabaseSync, type DatabaseSyncInstance } from "@photostructure/sqlite";
 import { mkdirSync } from "fs";
 import { homedir } from "os";
 
-let _db: DatabaseSync | null = null;
+let _db: DatabaseSyncInstance | null = null;
 
 export function resolvePath(p: string): string {
   return p.replace(/^~/, homedir());
 }
 
-export function getDb(dbPath: string): DatabaseSync {
+export function getDb(dbPath: string): DatabaseSyncInstance {
   if (_db) return _db;
   const resolved = resolvePath(dbPath);
   mkdirSync(resolved.substring(0, resolved.lastIndexOf("/")), { recursive: true });
@@ -31,10 +31,10 @@ export function closeDb(): void {
   if (_db) { _db.close(); _db = null; }
 }
 
-function migrate(db: DatabaseSync): void {
+function migrate(db: DatabaseSyncInstance): void {
   db.exec(`CREATE TABLE IF NOT EXISTS _migrations (v INTEGER PRIMARY KEY, at INTEGER NOT NULL)`);
   const cur = (db.prepare("SELECT MAX(v) as v FROM _migrations").get() as any)?.v ?? 0;
-  const steps = [m1_core, m2_messages, m3_signals, m4_fts5, m5_vectors];
+  const steps = [m1_core, m2_messages, m3_signals, m4_fts5, m5_vectors, m6_communities];
   for (let i = cur; i < steps.length; i++) {
     steps[i](db);
     db.prepare("INSERT INTO _migrations (v,at) VALUES (?,?)").run(i + 1, Date.now());
@@ -43,7 +43,7 @@ function migrate(db: DatabaseSync): void {
 
 // ─── 核心表：节点 + 边 ──────────────────────────────────────
 
-function m1_core(db: DatabaseSync): void {
+function m1_core(db: DatabaseSyncInstance): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS gm_nodes (
       id              TEXT PRIMARY KEY,
@@ -80,7 +80,7 @@ function m1_core(db: DatabaseSync): void {
 
 // ─── 消息存储 ────────────────────────────────────────────────
 
-function m2_messages(db: DatabaseSync): void {
+function m2_messages(db: DatabaseSyncInstance): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS gm_messages (
       id          TEXT PRIMARY KEY,
@@ -97,7 +97,7 @@ function m2_messages(db: DatabaseSync): void {
 
 // ─── 信号存储 ────────────────────────────────────────────────
 
-function m3_signals(db: DatabaseSync): void {
+function m3_signals(db: DatabaseSyncInstance): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS gm_signals (
       id          TEXT PRIMARY KEY,
@@ -114,7 +114,7 @@ function m3_signals(db: DatabaseSync): void {
 
 // ─── FTS5 全文索引 ───────────────────────────────────────────
 
-function m4_fts5(db: DatabaseSync): void {
+function m4_fts5(db: DatabaseSyncInstance): void {
   try {
     db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS gm_nodes_fts USING fts5(
@@ -148,12 +148,27 @@ function m4_fts5(db: DatabaseSync): void {
 
 // ─── 向量存储 ────────────────────────────────────────────────
 
-function m5_vectors(db: DatabaseSync): void {
+function m5_vectors(db: DatabaseSyncInstance): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS gm_vectors (
       node_id      TEXT PRIMARY KEY REFERENCES gm_nodes(id),
       content_hash TEXT NOT NULL,
       embedding    BLOB NOT NULL
+    );
+  `);
+}
+
+// ─── 社区描述存储 ────────────────────────────────────────────
+
+function m6_communities(db: DatabaseSyncInstance): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS gm_communities (
+      id          TEXT PRIMARY KEY,
+      summary     TEXT NOT NULL,
+      node_count  INTEGER NOT NULL DEFAULT 0,
+      embedding   BLOB,
+      created_at  INTEGER NOT NULL,
+      updated_at  INTEGER NOT NULL
     );
   `);
 }

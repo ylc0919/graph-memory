@@ -24,7 +24,7 @@
  *   - kg_stats 展示社区分布
  */
 
-import { DatabaseSync } from "@photostructure/sqlite";
+import { DatabaseSync, type DatabaseSyncInstance } from "@photostructure/sqlite";
 import { updateCommunities } from "../store/store.ts";
 
 export interface CommunityResult {
@@ -39,7 +39,7 @@ export interface CommunityResult {
  *
  * 把有向边当无向边处理（知识关联不分方向）
  */
-export function detectCommunities(db: DatabaseSync, maxIter = 50): CommunityResult {
+export function detectCommunities(db: DatabaseSyncInstance, maxIter = 50): CommunityResult {
   // 读取活跃节点
   const nodeRows = db.prepare(
     "SELECT id FROM gm_nodes WHERE status='active'"
@@ -149,7 +149,7 @@ export function detectCommunities(db: DatabaseSync, maxIter = 50): CommunityResu
  * 获取同社区的节点 ID 列表
  * recall 时用：找到种子节点 → 拉同社区的其他节点作为补充
  */
-export function getCommunityPeers(db: DatabaseSync, nodeId: string, limit = 5): string[] {
+export function getCommunityPeers(db: DatabaseSyncInstance, nodeId: string, limit = 5): string[] {
   const row = db.prepare(
     "SELECT community_id FROM gm_nodes WHERE id=? AND status='active'"
   ).get(nodeId) as any;
@@ -159,7 +159,92 @@ export function getCommunityPeers(db: DatabaseSync, nodeId: string, limit = 5): 
   return (db.prepare(`
     SELECT id FROM gm_nodes
     WHERE community_id=? AND id!=? AND status='active'
-    ORDER BY pagerank DESC, validated_count DESC
+    ORDER BY validated_count DESC, updated_at DESC
     LIMIT ?
   `).all(row.community_id, nodeId, limit) as any[]).map(r => r.id);
+}
+
+// ─── 社区描述生成 ────────────────────────────────────────────
+
+import type { CompleteFn } from "../engine/llm.ts";
+import type { EmbedFn } from "../engine/embed.ts";
+import { upsertCommunitySummary, pruneCommunitySummaries } from "../store/store.ts";
+
+const COMMUNITY_SUMMARY_SYS = `你是知识图谱社区摘要引擎。根据社区内的节点列表，生成一句话描述该社区的主题领域。
+要求：
+- 只返回一句话，不超过 30 个字
+- 描述该社区涵盖的工具/技术/任务领域
+- 不要使用"社区"这个词
+- 不要加引号或标点以外的格式`;
+
+/**
+ * 为所有社区生成 LLM 摘要描述 + embedding 向量
+ *
+ * 调用时机：runMaintenance → detectCommunities 之后
+ */
+export async function summarizeCommunities(
+  db: DatabaseSyncInstance,
+  communities: Map<string, string[]>,
+  llm: CompleteFn,
+  embedFn?: EmbedFn,
+): Promise<number> {
+  pruneCommunitySummaries(db);
+  let generated = 0;
+
+  for (const [communityId, memberIds] of communities) {
+    if (memberIds.length === 0) continue;
+
+    const placeholders = memberIds.map(() => "?").join(",");
+    const members = db.prepare(`
+      SELECT name, type, description FROM gm_nodes
+      WHERE id IN (${placeholders}) AND status='active'
+      ORDER BY validated_count DESC
+      LIMIT 10
+    `).all(...memberIds) as any[];
+
+    if (members.length === 0) continue;
+
+    const memberText = members
+      .map((m: any) => `${m.type}:${m.name} — ${m.description}`)
+      .join("\n");
+
+    try {
+      // LLM 生成描述
+      const summary = await llm(
+        COMMUNITY_SUMMARY_SYS,
+        `社区成员：\n${memberText}`,
+      );
+
+      const cleaned = summary.trim()
+        .replace(/<think>[\s\S]*?<\/think>/gi, "")  // 去掉思维链
+        .replace(/<think>[\s\S]*/gi, "")              // 去掉未闭合的 <think>
+        .replace(/^["'「」]|["'「」]$/g, "")
+        .replace(/\n/g, " ")
+        .replace(/\s{2,}/g, " ")
+        .trim()
+        .slice(0, 100);
+
+      if (cleaned.length === 0) continue;
+
+      // 生成社区 embedding（用描述 + 成员名拼接）
+      let embedding: number[] | undefined;
+      if (embedFn) {
+        try {
+          const embedText = `${cleaned}\n${members.map((m: any) => m.name).join(", ")}`;
+          embedding = await embedFn(embedText);
+        } catch {
+          if (process.env.GM_DEBUG) {
+            console.log(`  [DEBUG] community embedding failed for ${communityId}`);
+          }
+        }
+      }
+
+      upsertCommunitySummary(db, communityId, cleaned, memberIds.length, embedding);
+      generated++;
+    } catch (err) {
+      console.log(`  [WARN] community summary failed for ${communityId}: ${err}`);
+    }
+  }
+
+  return generated;
 }

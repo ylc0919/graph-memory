@@ -471,7 +471,7 @@ const graphMemoryPlugin = {
       }) {
         const rec = recalled.get(parentSessionKey);
         if (rec) recalled.set(childSessionKey, rec);
-        return { rollback: () => recalled.delete(childSessionKey) };
+        return { rollback: () => { recalled.delete(childSessionKey); } };
       },
 
       async onSubagentEnded({ childSessionKey }: { childSessionKey: string }) {
@@ -534,13 +534,15 @@ const graphMemoryPlugin = {
           for (const id of fin.invalidations) deprecate(db, id);
         }
 
-        // ██ 新增：运行图维护（PageRank + 社区检测 + 去重）
-        const result = runMaintenance(db, cfg);
+        // ██ 新增：运行图维护（PageRank + 社区检测 + 去重 + 社区描述）
+        const embedFn = (recaller as any).embed ?? undefined;
+        const result = await runMaintenance(db, cfg, llm, embedFn);
         api.logger.info(
           `[graph-memory] maintenance: ${result.durationMs}ms, ` +
           `dedup=${result.dedup.merged}, ` +
           `communities=${result.community.count}, ` +
-          `top_pr=${result.pagerank.topK.slice(0, 3).map(n => `${n.name}(${n.score.toFixed(3)})`).join(",")}`,
+          `summaries=${result.communitySummaries}, ` +
+          `top_pr=${result.pagerank.topK.slice(0, 3).map((n: any) => `${n.name}(${n.score.toFixed(3)})`).join(",")}`,
         );
       } catch (err) {
         api.logger.error(`[graph-memory] session_end error: ${err}`);
@@ -555,6 +557,7 @@ const graphMemoryPlugin = {
     api.registerTool(
       (_ctx: any) => ({
         name: "gm_search",
+        label: "Search Graph Memory",
         description: "搜索知识图谱中的相关经验、技能和解决方案。遇到可能之前解决过的问题时调用。",
         parameters: Type.Object({
           query: Type.String({ description: "搜索关键词或问题描述" }),
@@ -596,6 +599,7 @@ const graphMemoryPlugin = {
     api.registerTool(
       (ctx: any) => ({
         name: "gm_record",
+        label: "Record to Graph Memory",
         description: "手动记录经验到知识图谱。发现重要解法、踩坑经验或工作流程时调用。",
         parameters: Type.Object({
           name: Type.String({ description: "节点名称（全小写连字符）" }),
@@ -637,6 +641,7 @@ const graphMemoryPlugin = {
     api.registerTool(
       (_ctx: any) => ({
         name: "gm_stats",
+        label: "Graph Memory Stats",
         description: "查看知识图谱的统计信息：节点数、边数、社区数、PageRank Top 节点。",
         parameters: Type.Object({}),
         async execute(_toolCallId: string, _params: any) {
@@ -666,10 +671,12 @@ const graphMemoryPlugin = {
     api.registerTool(
       (_ctx: any) => ({
         name: "gm_maintain",
+        label: "Graph Memory Maintenance",
         description: "手动触发图维护：运行去重、PageRank 重算、社区检测。通常 session_end 时自动运行，这个工具用于手动触发。",
         parameters: Type.Object({}),
         async execute(_toolCallId: string, _params: any) {
-          const result = runMaintenance(db, cfg);
+          const embedFn = (recaller as any).embed ?? undefined;
+          const result = await runMaintenance(db, cfg, llm, embedFn);
           const text = [
             `🔧 图维护完成（${result.durationMs}ms）`,
             `去重：发现 ${result.dedup.pairs.length} 对相似节点，合并 ${result.dedup.merged} 对`,

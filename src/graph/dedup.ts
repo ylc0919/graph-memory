@@ -23,7 +23,7 @@
  * 复杂度：O(n²) 比较，n = 有向量的节点数。几千节点 < 50ms。
  */
 
-import { DatabaseSync } from "@photostructure/sqlite";
+import { DatabaseSync, type DatabaseSyncInstance } from "@photostructure/sqlite";
 import type { GmConfig, GmNode } from "../types.ts";
 import { findById, mergeNodes, getAllVectors } from "../store/store.ts";
 
@@ -62,7 +62,7 @@ function cosineSim(a: Float32Array, b: Float32Array): number {
  * 需要 embedding 才能工作，没有向量的节点会被跳过。
  * FTS5 名称完全匹配由 store.upsertNode 已处理，这里处理语义重复。
  */
-export function detectDuplicates(db: DatabaseSync, cfg: GmConfig): DuplicatePair[] {
+export function detectDuplicates(db: DatabaseSyncInstance, cfg: GmConfig): DuplicatePair[] {
   const vectors = getAllVectors(db);
   if (vectors.length < 2) return [];
 
@@ -99,7 +99,7 @@ export function detectDuplicates(db: DatabaseSync, cfg: GmConfig): DuplicatePair
  *   - 保留 validatedCount 更高的
  *   - validatedCount 相同时保留更新时间更近的
  */
-export function dedup(db: DatabaseSync, cfg: GmConfig): DedupResult {
+export function dedup(db: DatabaseSyncInstance, cfg: GmConfig): DedupResult {
   const pairs = detectDuplicates(db, cfg);
   let merged = 0;
 

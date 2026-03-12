@@ -7,13 +7,13 @@
  * 提供内存 SQLite 数据库，每个测试用例独立，互不干扰
  */
 
-import { DatabaseSync } from "@photostructure/sqlite";
+import { DatabaseSync, type DatabaseSyncInstance } from "@photostructure/sqlite";
 
 /**
  * 创建内存数据库 + 完整 migration
  * 等价于 getDb() 但用 :memory: 不写磁盘
  */
-export function createTestDb(): DatabaseSync {
+export function createTestDb(): DatabaseSyncInstance {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA foreign_keys = ON");
@@ -120,7 +120,7 @@ export function createTestDb(): DatabaseSync {
  * 快速插入测试节点
  */
 export function insertNode(
-  db: DatabaseSync,
+  db: DatabaseSyncInstance,
   opts: {
     id?: string;
     type?: string;
@@ -155,7 +155,7 @@ export function insertNode(
  * 快速插入测试边
  */
 export function insertEdge(
-  db: DatabaseSync,
+  db: DatabaseSyncInstance,
   opts: {
     fromId: string;
     toId: string;

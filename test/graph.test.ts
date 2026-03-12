@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { DatabaseSync } from "@photostructure/sqlite";
+import { DatabaseSync, type DatabaseSyncInstance } from "@photostructure/sqlite";
 import { createTestDb, insertNode, insertEdge } from "./helpers.ts";
 import { personalizedPageRank, computeGlobalPageRank, invalidateGraphCache } from "../src/graph/pagerank.ts";
 import { detectCommunities, getCommunityPeers } from "../src/graph/community.ts";
@@ -17,7 +17,7 @@ import { runMaintenance } from "../src/graph/maintenance.ts";
 import { saveVector } from "../src/store/store.ts";
 import { DEFAULT_CONFIG, type GmConfig } from "../src/types.ts";
 
-let db: DatabaseSync;
+let db: DatabaseSyncInstance;
 const cfg: GmConfig = { ...DEFAULT_CONFIG };
 
 beforeEach(() => {
@@ -278,22 +278,22 @@ describe("Vector Dedup", () => {
 // ═══════════════════════════════════════════════════════════════
 
 describe("runMaintenance", () => {
-  it("全套运行不报错", () => {
+  it("全套运行不报错", async () => {
     const a = insertNode(db, { name: "skill-a" });
     const b = insertNode(db, { name: "skill-b" });
     const c = insertNode(db, { name: "task-c", type: "TASK" });
     insertEdge(db, { fromId: c, toId: a, type: "USED_SKILL" });
     insertEdge(db, { fromId: c, toId: b, type: "USED_SKILL" });
 
-    const result = runMaintenance(db, cfg);
+    const result = await runMaintenance(db, cfg);
 
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
     expect(result.pagerank.topK.length).toBeGreaterThan(0);
     expect(result.community.count).toBeGreaterThan(0);
   });
 
-  it("空图不报错", () => {
-    const result = runMaintenance(db, cfg);
+  it("空图不报错", async () => {
+    const result = await runMaintenance(db, cfg);
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
     expect(result.pagerank.topK).toHaveLength(0);
     expect(result.community.count).toBe(0);
